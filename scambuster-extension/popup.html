@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ScamBuster</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+
+    <!-- HEADER -->
+    <header class="header">
+      <div class="logo">
+        <div class="logo-icon">
+          <img src="icons/icon48.png" width="22" height="22" alt="ScamGuard"/>
+        </div>
+        <div class="logo-text">
+          <div class="logo-name">ScamBuster</div>
+          <div class="logo-sub">Investment Fraud Detector</div>
+        </div>
+      </div>
+      <div class="scan-count" id="scanCount">0 scans</div>
+    </header>
+
+    <!-- URL BAR -->
+    <div class="url-bar">
+      <div class="url-dot" id="urlDot"></div>
+      <div class="url-text" id="currentUrl">Loading...</div>
+    </div>
+
+    <!-- MAIN CONTENT -->
+    <div class="main" id="mainContent">
+
+      <!-- IDLE STATE -->
+      <div class="state" id="stateIdle">
+        <div class="idle-wrap">
+          <div class="idle-icon">🔍</div>
+          <div class="idle-title">Ready to Scan</div>
+          <div class="idle-desc">Click the button below to analyze this page for investment scams</div>
+        </div>
+      </div>
+
+      <!-- SCANNING STATE -->
+      <div class="state hidden" id="stateScanning">
+        <div class="scanning-wrap">
+          <div class="scanner">
+            <div class="ring ring1"></div>
+            <div class="ring ring2"></div>
+            <div class="ring ring3"></div>
+            <div class="scanner-icon">🛡️</div>
+          </div>
+          <div class="scanning-title">Analyzing page...</div>
+          <div class="scanning-desc">AI is checking for scam patterns</div>
+        </div>
+      </div>
+
+      <!-- RESULT STATE -->
+      <div class="state hidden" id="stateResult">
+
+        <!-- Risk Meter -->
+        <div class="meter-wrap">
+          <div class="meter">
+            <svg class="meter-svg" viewBox="0 0 120 120">
+              <circle class="meter-bg" cx="60" cy="60" r="52"/>
+              <circle class="meter-fill" id="meterFill" cx="60" cy="60" r="52"
+                stroke-dasharray="327"
+                stroke-dashoffset="327"
+              />
+            </svg>
+            <div class="meter-center">
+              <div class="meter-num" id="meterNum">0%</div>
+              <div class="meter-lbl" id="meterLbl">SAFE</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Risk Badge -->
+        <div class="risk-badge" id="riskBadge">
+          <span id="badgeIcon">✅</span>
+          <span id="badgeText">Looks Safe</span>
+        </div>
+
+        <!-- Scam Type -->
+        <div class="info-block hidden" id="scamTypeBlock">
+          <div class="info-label">SCAM TYPE DETECTED</div>
+          <div class="info-value danger" id="scamTypeVal"></div>
+        </div>
+
+        <!-- Reasons -->
+        <div class="info-block" id="reasonsBlock">
+          <div class="info-label">ANALYSIS DETAILS</div>
+          <ul class="reasons" id="reasonsList"></ul>
+        </div>
+
+        <!-- Domain Info -->
+        <div class="info-block" id="domainBlock">
+          <div class="info-label">DOMAIN INTELLIGENCE</div>
+          <div class="domain-grid" id="domainGrid"></div>
+        </div>
+
+      </div>
+
+      <!-- ERROR STATE -->
+      <div class="state hidden" id="stateError">
+        <div class="error-wrap">
+          <div class="error-icon">⚠️</div>
+          <div class="error-title">Scan Failed</div>
+          <div class="error-desc" id="errorDesc">Could not connect to server. Make sure the backend is running.</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ACTIONS -->
+    <div class="actions">
+      <button class="btn-scan" id="btnScan">
+        <span>🔍</span> Scan This Page
+      </button>
+      <button class="btn-hist" id="btnHist" title="History">📋</button>
+    </div>
+
+    <!-- HISTORY PANEL -->
+    <div class="history hidden" id="historyPanel">
+      <div class="history-header">
+        <span>Recent Scans</span>
+        <button class="history-close" id="historyClose">✕</button>
+      </div>
+      <div class="history-list" id="historyList"></div>
+    </div>
+
+    <!-- FOOTER -->
+    <div class="footer">
+      Protected by ScamBuster &nbsp;·&nbsp; Premium Plan
+    </div>
+
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
