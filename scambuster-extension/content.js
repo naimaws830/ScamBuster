@@ -1,4 +1,3 @@
-// ScamBuster - Content Script
 // Extracts ALL readable content from the page
 
 function extractFullPageContent() {
@@ -74,26 +73,51 @@ function extractFullPageContent() {
   };
 }
 
-// ── TRIGGER KEYWORDS ─────────────────────────────────
-// English + Bahasa Malaysia — must match to auto-scan
+
+// TRIGGER KEYWORDS — English + Bahasa Malaysia + Bahasa Indonesia
+
 const TRIGGER_KEYWORDS = [
-  // English
+
+  // ── ENGLISH ──────────────────────────────────────────────────────────────
   'invest', 'profit', 'return', 'earn', 'income', 'crypto', 'forex', 'bitcoin',
   'trading', 'roi', 'fund', 'broker', 'wealth', 'dividend', 'yield', 'stake',
   'mining', 'arbitrage', 'binary', 'mlm', 'referral', 'passive', 'guaranteed',
   'daily profit', 'withdraw', 'deposit', 'portfolio', 'scheme', 'opportunity',
+  'risk free', 'no risk', 'double your money', 'join now', 'limited slots',
+  'secret system', 'autopilot', 'signal', 'copy trade', 'managed account',
+  'passive income', 'financial freedom', 'get rich', 'make money online',
 
-  // Bahasa Malaysia
+  // ── BAHASA MALAYSIA ───────────────────────────────────────────────────────
   'pelaburan', 'keuntungan', 'untung', 'modal', 'dividen', 'dijamin',
   'emas', 'sertai', 'segera', 'pendapatan', 'wang', 'ringgit', 'labur',
   'pulangan', 'tiada risiko', 'tanpa risiko', 'gandakan', 'perlombongan',
   'opsyen', 'pengeluaran', 'kumpulan', 'tempat terhad', 'bertindak sekarang',
+  'bonus rujukan', 'sistem rahsia', 'jana pendapatan', 'pasif income',
+  'peluang keemasan', 'yuran masuk', 'keuntungan harian', 'pulangan harian',
+  'labur sekarang', 'daftar sekarang', 'eksklusif', 'downline', 'upline',
+  'ajak kawan', 'kebebasan kewangan', 'wang pasif',
 
-  // Percentages
+  // ── BAHASA INDONESIA ──────────────────────────────────────────────────────
+  'investasi', 'penghasilan', 'pendapatan pasif', 'cuan', 'profit harian',
+  'deposito', 'tarik dana', 'penarikan', 'gabung sekarang', 'daftar gratis',
+  'tanpa modal', 'jamin untung', 'dijamin profit', 'pasti untung', 'untung pasti',
+  'sistem otomatis', 'trading otomatis', 'robot trading', 'sinyal trading',
+  'rekrut', 'rekrutmen', 'bonus rekrut', 'komisi referral', 'member baru',
+  'slot terbatas', 'buruan daftar', 'bergabung sekarang', 'join sekarang',
+  'kesempatan emas', 'peluang bisnis', 'bisnis online', 'kerja dari rumah',
+  'penghasilan tambahan', 'kripto', 'airdrop', 'staking', 'mining kripto',
+  'arisan online', 'money game', 'skema ponzi', 'binary option',
+  'forex tanpa modal', 'withdraw cepat', 'cair langsung', 'langsung cair',
+  'tidak terdaftar ojk', 'tanpa izin ojk', 'bebas finansial', 'kebebasan finansial',
+  'modal kecil untung besar', 'tanpa pengalaman', 'siapapun bisa',
+  'sudah terbukti', 'ribuan member', 'ratusan member',
+
+  // ── PERCENTAGES ───────────────────────────────────────────────────────────
   '100%', '200%', '300%', '500%', '1000%',
 
-  // Timeframes
-  '24 jam', '1 hari', 'setiap hari', 'daily', 'weekly', 'monthly', 'hourly'
+  // ── TIMEFRAMES ────────────────────────────────────────────────────────────
+  '24 jam', '1 hari', 'setiap hari', 'daily', 'weekly', 'monthly', 'hourly',
+  'per hari', 'per minggu', 'per bulan', 'setiap minggu', 'tiap hari'
 ];
 
 function isInvestmentPage() {
@@ -103,7 +127,7 @@ function isInvestmentPage() {
   return TRIGGER_KEYWORDS.some(kw => combined.includes(kw.toLowerCase()));
 }
 
-// ── MESSAGE LISTENER ─────────────────────────────────
+// ── MESSAGE LISTENER ──────────────────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'GET_PAGE_DATA') {
     try {
@@ -124,11 +148,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   return true;
 });
 
-// ── AUTO SCAN ────────────────────────────────────────
+// ── AUTO SCAN ─────────────────────────────────────────────────────────────────
 function autoScan() {
   if (!isInvestmentPage()) return;
   const data = extractFullPageContent();
-  console.log('ScamBuster auto-scan:', data.domain, '| chars:', data.text.length);
+  console.log('ScamBuster auto-scan triggered:', data.domain, '| chars:', data.text.length);
   chrome.runtime.sendMessage({ type: 'AUTO_SCAN', data });
 }
 

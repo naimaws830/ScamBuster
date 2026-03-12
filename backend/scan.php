@@ -11,7 +11,45 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit();
 }
 
-define('GEMINI_API_KEY', 'AIzaSyCPWXoYLFqTY7f9s5mtgTqPZkNaGdu2uIo');
+// Load environment variables
+function loadEnv($path) {
+    if (!file_exists($path)) {
+        return;
+    }
+    
+    $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    foreach ($lines as $line) {
+        if (strpos(trim($line), '#') === 0) {
+            continue;
+        }
+        
+        if (strpos($line, '=') !== false) {
+            list($key, $value) = explode('=', $line, 2);
+            $key = trim($key);
+            $value = trim($value);
+            
+            // Remove quotes if present
+            $value = trim($value, '"\'');
+            
+            if (!array_key_exists($key, $_SERVER) && !array_key_exists($key, $_ENV)) {
+                putenv(sprintf('%s=%s', $key, $value));
+                $_ENV[$key] = $value;
+                $_SERVER[$key] = $value;
+            }
+        }
+    }
+}
+
+// Load .env file from the same directory
+loadEnv(__DIR__ . '/.env');
+
+define('GEMINI_API_KEY', $_ENV['GEMINI_API_KEY'] ?? '');
+
+if (empty(GEMINI_API_KEY)) {
+    http_response_code(500);
+    echo json_encode(["status" => "error", "message" => "Gemini API key not configured"]);
+    exit();
+}
 
 $input = file_get_contents('php://input');
 $data  = json_decode($input, true);
@@ -36,89 +74,109 @@ if (empty($domain)) $domain = 'unknown.com';
 
 $headings_text = is_array($headings) ? implode(" ", $headings) : $headings;
 
-// ============================================================
-// SYSTEM PROMPT — Bilingual EN + BM, 11-step detection
-// ============================================================
+
+// SYSTEM PROMPT — Trilingual: English + Bahasa Malaysia + Bahasa Indonesia
+
 $system_prompt = <<<'PROMPT'
-You are ScamGuard AI — a specialist financial fraud detection agent fluent in both English and Bahasa Malaysia. You combine the expertise of an SC Malaysia enforcement officer, an Interpol cybercrime analyst, and a behavioral psychologist who studies financial manipulation tactics. You have analyzed hundreds of thousands of fraudulent investment websites in both English and Bahasa Malaysia.
+You are ScamBuster AI — a specialist financial fraud detection agent fluent in English, Bahasa Malaysia, AND Bahasa Indonesia. You combine the expertise of an SC Malaysia enforcement officer, an OJK Indonesia compliance analyst, an Interpol cybercrime investigator, and a behavioral psychologist who studies financial manipulation tactics. You have analyzed hundreds of thousands of fraudulent investment websites across Southeast Asia.
 
-YOUR MISSION: Protect Malaysians from losing their savings to investment scams. You are strict, evidence-based, and bilingual. You detect scams written in English, Bahasa Malaysia, Manglish, or any mix of all three.
+YOUR MISSION: Protect people in Malaysia and Indonesia from losing their savings to investment scams. You detect scams written in English, Bahasa Malaysia, Bahasa Indonesia, Manglish, or any mix of all three.
 
-BILINGUAL SCAM VOCABULARY — you must recognize ALL of these as red flags:
+TRILINGUAL SCAM VOCABULARY — recognize ALL of these as red flags:
 
-English scam phrases: guaranteed profit, guaranteed return, guaranteed income, risk-free investment, double your money, triple your investment, daily profit, passive income, act now, limited slots, secret system, no risk, withdraw anytime, 500% ROI, binary options, referral bonus, downline, upline, entry fee, crypto mining daily returns, arbitrage bot, AI trading guaranteed
+ENGLISH scam phrases:
+guaranteed profit, guaranteed return, guaranteed income, risk-free investment, double your money, triple your investment, daily profit, passive income, act now, limited slots, secret system, no risk, withdraw anytime, 500% ROI, binary options, referral bonus, downline, upline, entry fee, crypto mining daily returns, arbitrage bot, AI trading guaranteed, work from home, financial freedom, get rich quick, anyone can do it, no experience needed
 
-Bahasa Malaysia scam phrases: keuntungan dijamin, pulangan dijamin, pelaburan tanpa risiko, tiada risiko, gandakan wang, untung setiap hari, pendapatan pasif, bertindak sekarang, tempat terhad, sistem rahsia, pengeluaran segera, 500% ROI, opsyen binari, bonus rujukan, perlombongan crypto, labur sekarang, modal selamat, keuntungan harian, jana pendapatan, sertai sekarang, wang mudah, untung cepat, skim pelaburan, pelaburan lumayan, wang pokok terjamin
+BAHASA MALAYSIA scam phrases:
+keuntungan dijamin, pulangan dijamin, pelaburan tanpa risiko, tiada risiko, gandakan wang, untung setiap hari, pendapatan pasif, bertindak sekarang, tempat terhad, sistem rahsia, pengeluaran segera, opsyen binari, bonus rujukan, perlombongan crypto, labur sekarang, modal selamat, keuntungan harian, jana pendapatan, sertai sekarang, wang mudah, untung cepat, skim pelaburan, wang pokok terjamin, tiada pengalaman diperlukan, kebebasan kewangan, ajak kawan, bonus kumpulan, bayaran masuk, downline, upline
+
+BAHASA INDONESIA scam phrases:
+investasi bodong, dijamin profit, jamin untung, pasti untung, untung pasti, tanpa risiko, bebas risiko, cuan tiap hari, profit harian, bunga harian tinggi, arisan online, money game, skema ponzi, koperasi fiktif, robot trading, sinyal trading, trading otomatis profit, binary option, forex tanpa modal, mining kripto dijamin, slot terbatas, buruan daftar, bergabung sekarang, kesempatan emas, jangan sampai ketinggalan, bonus rekrut, komisi referral, rekrutmen member, ajak teman, tidak terdaftar OJK, tanpa izin OJK, modal kecil untung besar, tanpa pengalaman, siapapun bisa, sudah terbukti, ribuan member aktif, penghasilan tambahan, kerja dari rumah, withdraw cepat, langsung cair, cair setelah bayar, biaya penarikan, biaya aktivasi, upgrade untuk withdraw, bebas finansial, kebebasan finansial
 
 DETECTION STEPS — execute all in order:
 
 STEP 1 — SITE CONTEXT CHECK:
-If the site is clearly Wikipedia, a government .gov.my site, Bank Negara Malaysia, SC Malaysia, Maybank, CIMB, Public Bank, or a major news outlet — return risk_score 0, scam_type "None". Otherwise continue.
+If the site is clearly Wikipedia, a government .gov.my/.go.id site, Bank Negara Malaysia, SC Malaysia, OJK Indonesia, Maybank, CIMB, BRI, BCA, Mandiri, or a major news outlet — return risk_score 0, scam_type "None". Otherwise continue.
 
 STEP 2 — RETURN PROMISE SCAN (critical):
-Flag in both English and BM: any guaranteed return/profit/income claim, ROI above 20% monthly, daily profit promise, risk-free investment claim, capital protection with profit, passive income with specific amounts.
-Score: guaranteed return +45, unrealistic ROI +40, daily profit +35, risk-free +30, passive income with amount +20
+Flag in ALL THREE languages: any guaranteed return/profit/income claim, ROI above 20% monthly, daily profit promise, risk-free investment claim, capital protection with profit, passive income with specific amounts.
+Score: guaranteed return +45, unrealistic ROI +40, daily profit +35, risk-free +30
 MINIMUM RULE: If ANY guaranteed return found → minimum score 55
 
 STEP 3 — PRESSURE TACTICS SCAN:
-Flag in both languages: countdown timers, limited slots/tempat terhad, act now/bertindak sekarang, last chance/peluang terakhir, exclusive VIP, secret system/sistem rahsia, early bird, insider knowledge.
+Flag in all languages: countdown timers, limited slots/tempat terhad/slot terbatas, act now/bertindak sekarang/buruan daftar, last chance/peluang terakhir/jangan sampai ketinggalan, exclusive VIP, secret system/sistem rahsia, early bird, insider knowledge.
 Score: each pressure tactic +12
 
 STEP 4 — REGULATORY RED FLAGS:
-Flag: no SC Malaysia license, no BNM approval, no company registration, anonymous team, offshore jurisdiction, no terms and conditions, no privacy policy, no physical address.
-Score: missing regulator +25, anonymous team +15, offshore +20, no legal documents +15
+Malaysia: no SC Malaysia license, no BNM approval, no company registration
+Indonesia: tidak terdaftar OJK, tanpa izin OJK, bukan perusahaan resmi
+Both: anonymous team, offshore jurisdiction, no physical address, no legal documents
+Score: missing regulator +25, anonymous team +15, offshore +20
 
 STEP 5 — MLM AND PYRAMID SCAN:
-Flag in both languages: referral income/bonus rujukan, recruit friends/ajak kawan, downline/upline, team bonus/bonus kumpulan, entry fee/bayaran masuk, rank advancement, network marketing/pemasaran rangkaian.
+Flag in all languages:
+EN: referral bonus, recruit, downline, upline, team bonus, entry fee
+BM: bonus rujukan, ajak kawan, downline, upline, bonus kumpulan, bayaran masuk
+BI: bonus rekrut, komisi referral, rekrutmen member, ajak teman, arisan online, money game
 MINIMUM RULE: 3+ MLM signals → minimum score 72, classify MLM Pyramid Scheme
 
 STEP 6 — FAKE CREDIBILITY SCAN:
-Flag: celebrity names (Elon Musk, Warren Buffett, Dr Mahathir, Anwar Ibrahim, any Malaysian public figure), fake CNN/BBC/Forbes logos, testimonials with exact ringgit amounts, withdrawal proof screenshots, fake award badges, government partnership claims.
+Flag: celebrity names (Elon Musk, Warren Buffett, Dr Mahathir, Anwar Ibrahim, Jokowi, any public figure), fake media logos, testimonials with exact amounts, withdrawal proof screenshots, fake awards, government partnership claims, "sudah terbukti", "ribuan member aktif"
 Score: each fake credibility signal +18
 
 STEP 7 — CRYPTO AND FINTECH SCAM SCAN:
-Flag: crypto mining pools with daily returns, token presales with profit promises, arbitrage bots, AI trading with guaranteed win rates, DeFi yields above 500% APY, NFT flip schemes, seed phrase or private key requests.
-Score: each crypto scam signal +22, seed phrase/private key +40
+Flag:
+EN: crypto mining daily returns, arbitrage bot, AI trading guaranteed, token presale, seed phrase, private key
+BM: perlombongan crypto, bot dagangan, opsyen binari
+BI: mining kripto dijamin, robot trading, sinyal trading, binary option, trading otomatis profit, investasi bodong, skema ponzi, koperasi fiktif
+Score: each signal +22, seed phrase/private key +40
 
 STEP 8 — PAYMENT RED FLAGS:
-Flag: crypto-only payment, unexplained withdrawal process, withdrawal fees required, recruit-to-withdraw requirement, account activation fees, non-withdrawable bonus funds.
+Flag:
+EN: withdrawal fee, unlock withdrawal, recruit-to-withdraw, activation fee
+BM: bayaran pengeluaran, yuran aktivasi, naik taraf untuk keluarkan
+BI: biaya penarikan, biaya aktivasi, upgrade untuk withdraw, cair setelah bayar, bayar untuk tarik dana
 Score: each payment red flag +18
 
-STEP 9 — FINAL SCORE CALCULATION:
-Sum Steps 2–8. Apply hard rules:
+STEP 9 — WORK FROM HOME / EASY MONEY (Indonesian pattern):
+Flag: kerja dari rumah, penghasilan tambahan, tanpa pengalaman, siapapun bisa, modal kecil untung besar, bisnis online mudah, anyone can do it, no experience needed
+Score: each +15
+
+STEP 10 — FINAL SCORE + HARD RULES:
+Sum Steps 2–9. Apply:
 - ANY guaranteed return language → minimum 55
 - 3+ categories triggered → minimum 78
 - 5+ categories triggered → minimum 90
 - Cap at 100
 Thresholds: 0-25 SAFE | 26-55 SUSPICIOUS | 56-78 LIKELY SCAM | 79-100 DEFINITE SCAM
 
-STEP 10 — SCAM TYPE CLASSIFICATION:
-Pick exactly ONE: "Ponzi Scheme" | "Forex Robot Scam" | "Crypto Mining Fraud" | "Binary Options Scam" | "MLM Pyramid Scheme" | "Fake Investment Platform" | "Celebrity Endorsement Scam" | "Token or NFT Presale Fraud" | "Phishing Investment Site" | "None"
+STEP 11 — SCAM TYPE:
+Pick exactly ONE: "Ponzi Scheme" | "Forex Robot Scam" | "Crypto Mining Fraud" | "Binary Options Scam" | "MLM Pyramid Scheme" | "Fake Investment Platform" | "Money Game / Arisan Online" | "Celebrity Endorsement Scam" | "Token or NFT Presale Fraud" | "Phishing Investment Site" | "Work From Home Scam" | "None"
 
-STEP 11 — EVIDENCE REASONS:
+STEP 12 — EVIDENCE REASONS:
 Write 3–5 reasons. Each must:
-- Quote actual text from the page (in whatever language it appears)
-- Start with category in square brackets: [Return Promise], [Pressure Tactic], etc.
-- Never be generic — always cite page-specific evidence
-Example: [Return Promise] Page claims "keuntungan 500% dijamin setiap hari" — guaranteed 500% daily profit is impossible and fraudulent.
+- Quote actual text from the page in its original language (EN, BM, or BI)
+- Start with category: [Return Promise], [Pressure Tactic], [MLM Pattern], [Crypto Scam], [Payment Red Flag], [Regulatory], [Indonesia Scam], [Fake Credibility]
+- Be specific — cite page evidence, not generic descriptions
+- Write in the same language as the scam content detected
 
 ABSOLUTE RULES:
 1. Raw JSON only — no markdown, no code fences, nothing outside the JSON
 2. Always produce a score — never refuse
 3. Guaranteed return in ANY language → minimum score 55
-4. 3+ categories triggered → minimum score 78
-5. Detect scams in English AND Bahasa Malaysia equally
-6. Quote the actual language used on the page in your reasons
+4. 3+ categories → minimum score 78
+5. Detect scams in English, BM, AND BI equally
+6. Quote actual language used on the page in reasons
 
-OUTPUT FORMAT:
+OUTPUT FORMAT — return EXACTLY this JSON structure, nothing else:
 {"risk_score": <0-100>, "scam_type": "<approved value>", "reasons": ["<evidence>", "<evidence>", "<evidence>"]}
 PROMPT;
 
-$user_prompt = "Analyze this webpage for investment scams. The content may be in English, Bahasa Malaysia, or both.\n\nURL: {$url}\nDOMAIN: {$domain}\nTITLE: {$title}\nHEADINGS: {$headings_text}\n\nFULL PAGE CONTENT:\n{$text}";
+$user_prompt = "Analyze this webpage for investment scams. The content may be in English, Bahasa Malaysia, Bahasa Indonesia, or a mix.\n\nURL: {$url}\nDOMAIN: {$domain}\nTITLE: {$title}\nHEADINGS: {$headings_text}\n\nFULL PAGE CONTENT:\n{$text}";
 
-// ============================================================
-// GEMINI API
-// ============================================================
+
+// GEMINI API CALL
+
 $gemini_payload = [
     "contents" => [
         [
@@ -128,8 +186,8 @@ $gemini_payload = [
         ]
     ],
     "generationConfig" => [
-        "maxOutputTokens" => 700,
-        "temperature" => 0.1,
+        "maxOutputTokens"  => 700,
+        "temperature"      => 0.1,
         "responseMimeType" => "application/json"
     ]
 ];
@@ -140,12 +198,9 @@ curl_setopt_array($ai_ch, [
     CURLOPT_POST           => true,
     CURLOPT_POSTFIELDS     => json_encode($gemini_payload),
     CURLOPT_TIMEOUT        => 25,
-    CURLOPT_HTTPHEADER     => [
-        "Content-Type: application/json"
-    ]
+    CURLOPT_HTTPHEADER     => ["Content-Type: application/json"]
 ]);
 
-// Run AI call alone first (parallel WHOIS handled separately below)
 $mh = curl_multi_init();
 curl_multi_add_handle($mh, $ai_ch);
 $active = null;
@@ -157,20 +212,20 @@ $ai_raw = curl_multi_getcontent($ai_ch);
 curl_multi_remove_handle($mh, $ai_ch);
 curl_multi_close($mh);
 
-// ============================================================
-// DOMAIN INTEL — 4 methods tried in order, first success wins
-// ============================================================
+
+// DOMAIN INTEL — 3 methods tried in order, first success wins
+
 function getDomainIntel(string $domain): array {
     $result = ['age_days' => null, 'privacy' => false, 'source' => 'none'];
 
-    // ── METHOD 1: RDAP (ICANN free standard, no key needed) ──
-    // Bootstrap: find the right RDAP server for this TLD
-    $tld = strtolower(substr(strrchr($domain, '.'), 1));
+    // ── METHOD 1: RDAP (ICANN free, no key needed) ────────────
+    $tld = strtolower(ltrim(strrchr($domain, '.'), '.'));
     $rdap_servers = [
         'com'  => 'https://rdap.verisign.com/com/v1/domain/',
         'net'  => 'https://rdap.verisign.com/net/v1/domain/',
         'org'  => 'https://rdap.publicinterestregistry.org/rdap/domain/',
         'my'   => 'https://rdap.mynic.my/rdap/domain/',
+        'id'   => 'https://rdap.pandi.or.id/rdap/domain/',
         'io'   => 'https://rdap.iana.org/domain/',
         'info' => 'https://rdap.afilias.info/rdap/info/domain/',
     ];
@@ -182,16 +237,16 @@ function getDomainIntel(string $domain): array {
         CURLOPT_TIMEOUT        => 7,
         CURLOPT_FOLLOWLOCATION => true,
         CURLOPT_SSL_VERIFYPEER => false,
-        CURLOPT_HTTPHEADER     => ['Accept: application/json', 'User-Agent: ScamGuardAI/1.0']
+        CURLOPT_HTTPHEADER     => ['Accept: application/json', 'User-Agent: ScamBusterAI/1.0']
     ]);
-    $raw = curl_exec($ch);
+    $raw  = curl_exec($ch);
     $http = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
 
     if ($raw && $http === 200) {
-        $data = json_decode($raw, true);
-        if ($data && isset($data['events'])) {
-            foreach ($data['events'] as $ev) {
+        $d = json_decode($raw, true);
+        if ($d && isset($d['events'])) {
+            foreach ($d['events'] as $ev) {
                 $action = strtolower($ev['eventAction'] ?? '');
                 if (in_array($action, ['registration','registered','creation','domain registration'])) {
                     $t = strtotime($ev['eventDate'] ?? '');
@@ -203,39 +258,34 @@ function getDomainIntel(string $domain): array {
                 }
             }
         }
-        // Check redacted status for privacy
-        foreach (($data['status'] ?? []) as $s) {
-            if (strpos(strtolower($s), 'redact') !== false) {
-                $result['privacy'] = true; break;
-            }
+        foreach (($d['status'] ?? []) as $s) {
+            if (strpos(strtolower($s), 'redact') !== false) { $result['privacy'] = true; break; }
         }
         if ($result['age_days'] !== null) return $result;
     }
 
-    // ── METHOD 2: whoisjson.com (free tier) ──────────────
+    // ── METHOD 2: whoisjson.com (free tier) ───────────────────
     $ch2 = curl_init("https://whoisjson.com/api/v1/whois?domain=" . urlencode($domain));
     curl_setopt_array($ch2, [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT        => 7,
         CURLOPT_SSL_VERIFYPEER => false,
-        CURLOPT_HTTPHEADER     => ['User-Agent: ScamGuardAI/1.0', 'Accept: application/json']
+        CURLOPT_HTTPHEADER     => ['User-Agent: ScamBusterAI/1.0', 'Accept: application/json']
     ]);
-    $raw2 = curl_exec($ch2);
+    $raw2  = curl_exec($ch2);
     $http2 = curl_getinfo($ch2, CURLINFO_HTTP_CODE);
     curl_close($ch2);
 
     if ($raw2 && $http2 === 200) {
-        $data2 = json_decode($raw2, true);
-        if ($data2 && !isset($data2['error'])) {
-            // Try all known field names different APIs use
-            $created = $data2['created']
-                ?? $data2['creation_date']
-                ?? $data2['registered']
-                ?? $data2['domain']['created_date']
-                ?? $data2['WhoisRecord']['createdDate']
+        $d2 = json_decode($raw2, true);
+        if ($d2 && !isset($d2['error'])) {
+            $created = $d2['created']
+                ?? $d2['creation_date']
+                ?? $d2['registered']
+                ?? $d2['domain']['created_date']
+                ?? $d2['WhoisRecord']['createdDate']
                 ?? null;
             if ($created) {
-                // Handle array (some APIs return array of dates)
                 if (is_array($created)) $created = $created[0];
                 $t = strtotime($created);
                 if ($t > 0) {
@@ -251,8 +301,7 @@ function getDomainIntel(string $domain): array {
         }
     }
 
-    // ── METHOD 3: DNS SOA serial heuristic ───────────────
-    // Many DNS admins use YYYYMMDDNN format for SOA serial
+    // ── METHOD 3: DNS SOA serial heuristic ────────────────────
     $soa = @dns_get_record($domain, DNS_SOA);
     if ($soa && isset($soa[0]['serial'])) {
         $serial = (string)$soa[0]['serial'];
@@ -262,7 +311,7 @@ function getDomainIntel(string $domain): array {
             $day   = (int)substr($serial, 6, 2);
             if ($year >= 1994 && $year <= (int)date('Y')
                 && $month >= 1 && $month <= 12
-                && $day >= 1   && $day <= 31) {
+                && $day   >= 1 && $day   <= 31) {
                 $t = mktime(0, 0, 0, $month, $day, $year);
                 if ($t > 0) {
                     $result['age_days'] = (int)floor((time() - $t) / 86400);
@@ -280,9 +329,9 @@ $domain_age_days = $whois_result['age_days'];
 $privacy_hidden  = $whois_result['privacy'];
 $age_source      = $whois_result['source'];
 
-// ============================================================
-// PARSE AI RESPONSE
-// ============================================================
+
+// PARSE AI RESPONSE (Gemini format)
+
 $ai_data = null;
 if ($ai_raw) {
     $ai_res  = json_decode($ai_raw, true);
@@ -294,12 +343,15 @@ if ($ai_raw) {
     }
 }
 
-// ============================================================
-// BILINGUAL KEYWORD FALLBACK — EN + BM
-// ============================================================
-if (!$ai_data || !isset($ai_data['risk_score'])) {
 
-    $check = strtolower($text . ' ' . $title . ' ' . $headings_text);
+// KEYWORD FALLBACK — Trilingual EN + BM + INDO
+// Activates only if Gemini fails or returns invalid JSON
+
+$used_fallback = false;
+
+if (!$ai_data || !isset($ai_data['risk_score'])) {
+    $used_fallback  = true;
+    $check          = strtolower($text . ' ' . $title . ' ' . $headings_text);
     $score          = 0;
     $reasons        = [];
     $category_hits  = 0;
@@ -308,7 +360,7 @@ if (!$ai_data || !isset($ai_data['risk_score'])) {
     $categories = [
 
         'Return Promises' => [
-            // English
+            // EN
             'guaranteed profit'        => 45,
             'guaranteed return'        => 45,
             'guaranteed income'        => 40,
@@ -324,7 +376,7 @@ if (!$ai_data || !isset($ai_data['risk_score'])) {
             'passive income'           => 20,
             'capital protection'       => 28,
             'principal guaranteed'     => 32,
-            // Bahasa Malaysia
+            // BM
             'keuntungan dijamin'       => 45,
             'pulangan dijamin'         => 45,
             'untung dijamin'           => 45,
@@ -341,45 +393,73 @@ if (!$ai_data || !isset($ai_data['risk_score'])) {
             'wang pokok terjamin'      => 38,
             'pulangan tetap'           => 35,
             'keuntungan tetap'         => 35,
+            // BI
+            'dijamin profit'           => 50,
+            'jamin untung'             => 48,
+            'pasti untung'             => 45,
+            'untung pasti'             => 45,
+            'cuan tiap hari'           => 38,
+            'profit harian'            => 35,
+            'bunga harian'             => 32,
+            'bebas risiko'             => 38,
+            'modal kecil untung besar' => 40,
         ],
 
         'Pressure Tactics' => [
-            // English
-            'limited slots'            => 12,
-            'act now'                  => 12,
-            'register today'           => 12,
-            "don't miss out"           => 14,
-            'dont miss out'            => 14,
-            'last chance'              => 14,
-            'exclusive access'         => 12,
-            'secret system'            => 18,
-            'insider knowledge'        => 18,
-            'early bird'               => 10,
-            // Bahasa Malaysia
-            'tempat terhad'            => 12,
-            'bertindak sekarang'       => 12,
-            'daftar sekarang'          => 12,
-            'jangan lepaskan'          => 14,
-            'peluang terakhir'         => 14,
-            'akses eksklusif'          => 12,
-            'sistem rahsia'            => 18,
-            'sertai sekarang'          => 10,
-            'labur sekarang'           => 10,
+            // EN
+            'limited slots'             => 12,
+            'act now'                   => 12,
+            'register today'            => 12,
+            "don't miss out"            => 14,
+            'dont miss out'             => 14,
+            'last chance'               => 14,
+            'exclusive access'          => 12,
+            'secret system'             => 18,
+            'insider knowledge'         => 18,
+            'early bird'                => 10,
+            'join now'                  => 10,
+            // BM
+            'tempat terhad'             => 12,
+            'bertindak sekarang'        => 12,
+            'daftar sekarang'           => 12,
+            'jangan lepaskan'           => 14,
+            'peluang terakhir'          => 14,
+            'akses eksklusif'           => 12,
+            'sistem rahsia'             => 18,
+            'sertai sekarang'           => 10,
+            'labur sekarang'            => 10,
+            // BI
+            'slot terbatas'             => 12,
+            'buruan daftar'             => 14,
+            'bergabung sekarang'        => 12,
+            'kesempatan emas'           => 14,
+            'jangan sampai ketinggalan' => 16,
+            'segera daftar'             => 12,
+            'daftar gratis'             => 10,
+            'gabung sekarang'           => 12,
         ],
 
         'Regulatory Red Flags' => [
+            // EN
             'unregulated'              => 20,
             'no license'               => 22,
             'offshore'                 => 18,
             'vanuatu'                  => 22,
             'seychelles'               => 22,
             'marshall islands'         => 22,
+            // BM
             'tiada lesen'              => 22,
             'tidak berdaftar'          => 20,
+            'tiada lesen sc'           => 28,
+            // BI
+            'tidak terdaftar ojk'      => 32,
+            'tanpa izin ojk'           => 32,
+            'bukan perusahaan resmi'   => 25,
+            'tanpa izin'               => 18,
         ],
 
         'MLM Patterns' => [
-            // English
+            // EN
             'referral bonus'           => 25,
             'recruit and earn'         => 30,
             'downline'                 => 28,
@@ -388,7 +468,7 @@ if (!$ai_data || !isset($ai_data['risk_score'])) {
             'team bonus'               => 22,
             'entry fee'                => 20,
             'network marketing'        => 18,
-            // Bahasa Malaysia
+            // BM
             'bonus rujukan'            => 25,
             'ajak kawan'               => 25,
             'bonus kumpulan'           => 22,
@@ -396,10 +476,18 @@ if (!$ai_data || !isset($ai_data['risk_score'])) {
             'pemasaran rangkaian'      => 18,
             'rekrut ahli'              => 28,
             'jana pendapatan'          => 20,
+            // BI
+            'bonus rekrut'             => 28,
+            'komisi referral'          => 25,
+            'rekrutmen member'         => 30,
+            'ajak teman'               => 20,
+            'bonus anggota baru'       => 25,
+            'arisan online'            => 38,
+            'money game'               => 38,
         ],
 
         'Crypto Scam Patterns' => [
-            // English
+            // EN
             'mining pool profit'       => 25,
             'cloud mining'             => 22,
             'arbitrage bot'            => 28,
@@ -409,30 +497,72 @@ if (!$ai_data || !isset($ai_data['risk_score'])) {
             'private key'              => 40,
             'token presale'            => 22,
             'binary options'           => 50,
-            // Bahasa Malaysia
+            // BM
             'perlombongan crypto'      => 25,
             'perlombongan awan'        => 22,
             'opsyen binari'            => 50,
             'bot dagangan'             => 28,
             'token pratjualan'         => 22,
+            // BI
+            'mining kripto dijamin'    => 50,
+            'robot trading'            => 40,
+            'sinyal trading'           => 35,
+            'binary option'            => 45,
+            'forex tanpa modal'        => 42,
+            'trading otomatis profit'  => 45,
+            'investasi bodong'         => 55,
+            'skema ponzi'              => 65,
+            'koperasi fiktif'          => 55,
         ],
 
         'Payment Red Flags' => [
-            // English
+            // EN
             'withdrawal fee'           => 20,
             'unlock withdrawal'        => 22,
             'recruit to withdraw'      => 28,
             'verification fee'         => 20,
             'activate account'         => 18,
             'upgrade to withdraw'      => 25,
-            // Bahasa Malaysia
+            // BM
             'bayaran pengeluaran'      => 20,
             'buka pengeluaran'         => 22,
             'yuran pengesahan'         => 20,
+            'yuran aktivasi'           => 20,
             'aktifkan akaun'           => 18,
             'naik taraf untuk'         => 22,
             'pengeluaran segera'       => 15,
+            // BI
+            'biaya penarikan'          => 22,
+            'biaya aktivasi'           => 20,
+            'upgrade untuk withdraw'   => 25,
+            'cair setelah bayar'       => 30,
+            'bayar untuk tarik dana'   => 30,
+            'withdraw cepat'           => 15,
+            'langsung cair'            => 15,
         ],
+
+        'Indonesia Scam' => [
+            'tidak terdaftar ojk'      => 38,
+            'tanpa izin ojk'           => 38,
+            'investasi bodong'         => 55,
+            'koperasi fiktif'          => 55,
+            'tanpa pengalaman'         => 18,
+            'siapapun bisa'            => 18,
+            'sudah terbukti'           => 20,
+            'ribuan member aktif'      => 22,
+            'kerja dari rumah'         => 15,
+            'penghasilan tambahan'     => 15,
+            'bebas finansial'          => 20,
+            'kebebasan finansial'      => 20,
+        ],
+    ];
+
+    $guaranteed_phrases = [
+        'guaranteed profit','guaranteed return','guaranteed income',
+        'risk-free investment','principal guaranteed',
+        'keuntungan dijamin','pulangan dijamin','untung dijamin',
+        'dijamin untung','pelaburan tanpa risiko','modal selamat','wang pokok terjamin',
+        'dijamin profit','jamin untung','pasti untung','untung pasti','bebas risiko',
     ];
 
     foreach ($categories as $cat_name => $keywords) {
@@ -443,15 +573,6 @@ if (!$ai_data || !isset($ai_data['risk_score'])) {
             if (strpos($check, strtolower($phrase)) !== false) {
                 $cat_score += $weight;
                 $cat_hits[] = $phrase;
-
-                // Track guaranteed hits
-                $guaranteed_phrases = [
-                    'guaranteed profit','guaranteed return','guaranteed income',
-                    'risk-free investment','principal guaranteed',
-                    'keuntungan dijamin','pulangan dijamin','untung dijamin',
-                    'dijamin untung','pelaburan tanpa risiko','modal selamat',
-                    'wang pokok terjamin'
-                ];
                 if (in_array(strtolower($phrase), $guaranteed_phrases)) {
                     $guaranteed_hit = true;
                 }
@@ -468,38 +589,33 @@ if (!$ai_data || !isset($ai_data['risk_score'])) {
         }
     }
 
-    // ── ENFORCE HARD RULES ───────────────────────────
+    // Hard scoring rules
     $score = min($score, 100);
-    if ($guaranteed_hit)       $score = max($score, 55);
-    if ($category_hits >= 3)   $score = max($score, 78);
-    if ($category_hits >= 5)   $score = max($score, 90);
+    if ($guaranteed_hit)     $score = max($score, 55);
+    if ($category_hits >= 3) $score = max($score, 78);
+    if ($category_hits >= 5) $score = max($score, 90);
 
-    // ── SCAM TYPE FROM DOMINANT CATEGORY ─────────────
-    $scam_map = [
-        'MLM Patterns'          => 'MLM Pyramid Scheme',
-        'Crypto Scam Patterns'  => 'Crypto Mining Fraud',
-        'Return Promises'       => 'Fake Investment Platform',
-        'Pressure Tactics'      => 'Fake Investment Platform',
-        'Payment Red Flags'     => 'Fake Investment Platform',
-        'Regulatory Red Flags'  => 'Fake Investment Platform',
-    ];
+    // Scam type detection
     $scam_type = 'None';
     if ($score > 0) {
-        foreach ($scam_map as $cat => $type) {
-            if (isset($categories[$cat])) {
-                foreach ($categories[$cat] as $phrase => $w) {
-                    if (strpos($check, strtolower($phrase)) !== false) {
-                        $scam_type = $type;
-                        break 2;
-                    }
-                }
-            }
+        if (strpos($check, 'arisan online') !== false || strpos($check, 'money game') !== false) {
+            $scam_type = 'Money Game / Arisan Online';
+        } elseif (strpos($check, 'skema ponzi') !== false || strpos($check, 'ponzi') !== false) {
+            $scam_type = 'Ponzi Scheme';
+        } elseif (strpos($check, 'mlm') !== false || strpos($check, 'downline') !== false || strpos($check, 'rekrutmen') !== false) {
+            $scam_type = 'MLM Pyramid Scheme';
+        } elseif (strpos($check, 'binary') !== false || strpos($check, 'opsyen binari') !== false) {
+            $scam_type = 'Binary Options Scam';
+        } elseif (strpos($check, 'forex') !== false || strpos($check, 'robot trading') !== false) {
+            $scam_type = 'Forex Robot Scam';
+        } elseif (strpos($check, 'crypto') !== false || strpos($check, 'kripto') !== false || strpos($check, 'bitcoin') !== false) {
+            $scam_type = 'Crypto Mining Fraud';
+        } else {
+            $scam_type = 'Fake Investment Platform';
         }
     }
 
-    if (empty($reasons)) {
-        $reasons = ['No obvious scam patterns detected in page content'];
-    }
+    if (empty($reasons)) $reasons[] = 'No specific scam patterns detected in keyword analysis.';
 
     $ai_data = [
         'risk_score' => $score,
@@ -508,30 +624,41 @@ if (!$ai_data || !isset($ai_data['risk_score'])) {
     ];
 }
 
-// WHOIS already parsed above via fetchWhois()
 
-$age_risk = 'yellow'; $age_str = 'Unknown';
-if ($domain_age_days !== null) {
-    // Build human readable age string
-    if ($domain_age_days < 90)      { $age_risk = 'red';    $age_str = $domain_age_days . ' days'; }
-    elseif ($domain_age_days < 365) { $age_risk = 'yellow'; $age_str = round($domain_age_days / 30) . ' months'; }
-    else                            { $age_risk = 'green';  $age_str = round($domain_age_days / 365, 1) . ' years'; }
+// DOMAIN AGE + PRIVACY LABELS
 
-    // SSL cert age is NOT reliable for domain age (certs renew every 90 days)
-    // Hide it to avoid misleading users — show Unknown instead
-    if (($age_source ?? '') === 'ssl_cert') {
-        $age_str  = 'Unknown';
+$age_risk = 'yellow';
+$age_str  = 'Unknown';
+
+if ($domain_age_days !== null && ($age_source ?? '') !== 'ssl_cert') {
+    if ($domain_age_days < 90) {
+        $age_risk = 'red';
+        $age_str  = $domain_age_days . ' days';
+    } elseif ($domain_age_days < 365) {
         $age_risk = 'yellow';
+        $age_str  = round($domain_age_days / 30) . ' months';
+    } else {
+        $age_risk = 'green';
+        $age_str  = round($domain_age_days / 365, 1) . ' years';
     }
 }
 
 $privacy_str  = $privacy_hidden ? 'Hidden' : 'Public';
 $privacy_risk = $privacy_hidden ? 'red'    : 'green';
-$score        = intval($ai_data['risk_score'] ?? 0);
-$risk_label   = $score >= 61 ? 'High' : ($score >= 31 ? 'Medium' : 'Low');
-$risk_color   = $score >= 61 ? 'red'  : ($score >= 31 ? 'yellow' : 'green');
-// ── HTTPS DETECTION ─────────────────────────────────────
-// Use explicit protocol field if sent, otherwise parse from URL
+
+
+// RISK LABEL
+
+$score = intval($ai_data['risk_score'] ?? 0);
+
+if ($score >= 79)     { $risk_label = 'DEFINITE SCAM'; $risk_color = 'red'; }
+elseif ($score >= 56) { $risk_label = 'LIKELY SCAM';   $risk_color = 'orange'; }
+elseif ($score >= 26) { $risk_label = 'SUSPICIOUS';    $risk_color = 'yellow'; }
+else                  { $risk_label = 'SAFE';           $risk_color = 'green'; }
+
+
+// HTTPS DETECTION
+
 $protocol = strtolower($data['protocol'] ?? '');
 if (empty($protocol)) {
     $parsed_url = parse_url($url);
@@ -539,7 +666,6 @@ if (empty($protocol)) {
 }
 
 if (in_array($protocol, ['file', 'chrome', 'chrome-extension', 'about', 'data', ''])) {
-    // Local file or browser internal page — HTTPS not applicable
     $https       = null;
     $https_label = 'N/A';
     $https_risk  = 'green';
@@ -548,18 +674,21 @@ if (in_array($protocol, ['file', 'chrome', 'chrome-extension', 'about', 'data', 
     $https_label = 'Secure (HTTPS)';
     $https_risk  = 'green';
 } else {
-    // http:// or anything else — insecure
     $https       = false;
     $https_label = 'Insecure (HTTP)';
     $https_risk  = 'red';
 }
 
+
+// RESPONSE
+
 echo json_encode([
-    'status'      => 'done',
-    'risk_score'  => $score,
-    'scam_type'   => $ai_data['scam_type'] ?? 'None',
-    'reasons'     => $ai_data['reasons']   ?? [],
-    'domain_info' => [
+    'status'           => 'done',
+    'risk_score'       => $score,
+    'scam_type'        => $ai_data['scam_type'] ?? 'None',
+    'reasons'          => $ai_data['reasons']   ?? [],
+    'detection_method' => $used_fallback ? 'keyword' : 'ai',
+    'domain_info'      => [
         'age'          => $age_str,
         'age_risk'     => $age_risk,
         'privacy'      => $privacy_str,
