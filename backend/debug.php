@@ -2,7 +2,7 @@
 header("Access-Control-Allow-Origin: *");
 header("Content-Type: application/json");
 
-define('OPENROUTER_API_KEY', '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');  // ← your real key
+define('OPENROUTER_API_KEY', 'YOUR_NEW_API_KEY_HERE');  
 
 // Simulate exactly what scan.php sends
 $test_prompt = 'Analyze this webpage for investment scams. Page URL: https://test-scam.com | Page Title: Get Rich Quick | Page Text: guaranteed profit 500% ROI daily returns join now limited slots act now guaranteed income | Return ONLY raw JSON: {"risk_score": <0-100>, "scam_type": "<type>", "reasons": ["<reason>"]}';
