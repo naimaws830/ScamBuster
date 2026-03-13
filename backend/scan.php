@@ -16,7 +16,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit();
 }
 
-define('OPENROUTER_API_KEY', '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');  // ← paste your OpenRouter key here
+define('OPENROUTER_API_KEY', 'YOUR_NEW_API_KEY_HERE');  
 
 $input = file_get_contents('php://input');
 $data  = json_decode($input, true);
@@ -41,9 +41,7 @@ if (empty($domain)) $domain = 'unknown.com';
 
 $headings_text = is_array($headings) ? implode(" ", $headings) : $headings;
 
-/* ============================================================
-   SYSTEM PROMPT — Trilingual EN + BM + BI
-   ============================================================ */
+/* SYSTEM PROMPT — Trilingual EN + BM + BI */
 
 $system_prompt = <<<'PROMPT'
 You are ScamBuster AI — a specialist financial fraud detection agent fluent in English, Bahasa Malaysia, AND Bahasa Indonesia. You combine the expertise of an SC Malaysia enforcement officer, an OJK Indonesia compliance analyst, an Interpol cybercrime investigator, and a behavioral psychologist studying financial manipulation.
@@ -153,9 +151,8 @@ REQUIRED JSON FORMAT (return exactly this structure):
 {"risk_score": <integer 0-100>, "scam_type": "<one approved type>", "reasons": ["<reason 1>", "<reason 2>", "<reason 3>"]}
 PROMPT;
 
-/* ============================================================
-   USER PROMPT
-   ============================================================ */
+/* USER PROMPT */
+   
 
 $user_prompt = "Analyze this webpage for investment scams. Content may be in English, Bahasa Malaysia, Bahasa Indonesia, or mixed.
 
@@ -168,11 +165,6 @@ PAGE CONTENT:
 {$text}
 
 Remember: Return ONLY raw JSON starting with { — no markdown, no code fences.";
-
-/* ============================================================
-   OPENROUTER API CALL — free tier, no daily quota limit
-   Models tried in order: mistral-7b → llama-3.1-8b → gemma-2-9b
-   ============================================================ */
 
 function callOpenRouter(string $system, string $user, string $api_key, string $model): array {
     $payload = [
@@ -249,9 +241,7 @@ foreach ($or_models as $model) {
 $ai_raw       = $ai_result['raw'];
 $ai_http_code = $ai_result['http'];
 
-/* ============================================================
-   DOMAIN INTEL — 3 methods tried in order
-   ============================================================ */
+/* DOMAIN INTEL — 3 methods tried in order */
 
 function getDomainIntel(string $domain): array {
     $result = ['age_days' => null, 'privacy' => false, 'source' => 'none'];
@@ -345,9 +335,7 @@ $domain_age_days = $whois_result['age_days'];
 $privacy_hidden  = $whois_result['privacy'];
 $age_source      = $whois_result['source'];
 
-/* ============================================================
-   PARSE AI RESPONSE — handles OpenRouter response format
-   ============================================================ */
+/* PARSE AI RESPONSE — handles OpenRouter response format */
 
 function parseGeminiResponse(?string $raw, int $http_code): ?array {
     if (!$raw || $http_code !== 200) return null;
@@ -411,9 +399,7 @@ function parseGeminiResponse(?string $raw, int $http_code): ?array {
 
 $ai_data = parseGeminiResponse($ai_raw, $ai_http_code);
 
-/* ============================================================
-   VALIDATE AI RESPONSE — ensure fields are correct types
-   ============================================================ */
+/* VALIDATE AI RESPONSE — ensure fields are correct types */
 
 if ($ai_data) {
     // Ensure risk_score is a valid integer 0-100
@@ -437,10 +423,7 @@ if ($ai_data) {
     }
 }
 
-/* ============================================================
-   KEYWORD FALLBACK — Trilingual EN + BM + BI
-   Only runs if Gemini completely fails
-   ============================================================ */
+/* KEYWORD FALLBACK — Trilingual EN + BM + ID */
 
 $used_fallback = false;
 
@@ -602,9 +585,7 @@ if (!$ai_data) {
     $ai_data = ['risk_score' => $score, 'scam_type' => $scam_type, 'reasons' => $reasons];
 }
 
-/* ============================================================
-   DOMAIN AGE + PRIVACY
-   ============================================================ */
+/* DOMAIN AGE + PRIVACY */
 
 $age_risk = 'yellow'; $age_str = 'Unknown';
 if ($domain_age_days !== null && ($age_source ?? '') !== 'ssl_cert') {
@@ -616,9 +597,7 @@ if ($domain_age_days !== null && ($age_source ?? '') !== 'ssl_cert') {
 $privacy_str  = $privacy_hidden ? 'Hidden' : 'Public';
 $privacy_risk = $privacy_hidden ? 'red'    : 'green';
 
-/* ============================================================
-   RISK LABEL
-   ============================================================ */
+/* RISK LABEL */
 
 $score = intval($ai_data['risk_score'] ?? 0);
 
@@ -627,9 +606,7 @@ elseif  ($score >= 56) { $risk_label = 'LIKELY SCAM';   $risk_color = 'orange'; 
 elseif  ($score >= 26) { $risk_label = 'SUSPICIOUS';    $risk_color = 'yellow'; }
 else                   { $risk_label = 'SAFE';           $risk_color = 'green'; }
 
-/* ============================================================
-   HTTPS DETECTION
-   ============================================================ */
+/* HTTPS DETECTION */
 
 $protocol = strtolower($data['protocol'] ?? '');
 if (empty($protocol)) {
@@ -645,9 +622,7 @@ if (in_array($protocol, ['file','chrome','chrome-extension','about','data','']))
     $https = false; $https_label = 'Insecure (HTTP)'; $https_risk = 'red';
 }
 
-/* ============================================================
-   RESPONSE
-   ============================================================ */
+/* RESPONSE */
 
 echo json_encode([
     'status'           => 'done',
