@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "ScamGuard AI",
-  "version": "1.0.0",
+  "name": "ScamBuster",
+  "version": "5.0.0",
   "description": "AI-powered investment scam detector. Automatically scans websites and warns you of potential fraud.",
   "permissions": [
     "activeTab",
