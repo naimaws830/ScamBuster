@@ -12,6 +12,11 @@
 
 ---
 
+## Landing Page Deployment Link
+- [Click here to visit the landing page](https://scambuster-gitgud.vercel.app/)
+- https://scambuster-gitgud.vercel.app/
+---
+
 ## Project Structure
 - `landing-page/` – Frontend app (Vite + React + TypeScript) for the marketing site and dashboard UI.
 - `backend/scan.php` – Simple PHP endpoint for scanning/processing requests.
